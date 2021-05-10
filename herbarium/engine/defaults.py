@@ -319,6 +319,7 @@ class DefaultPredictor:
             return predictions
 
 
+
 class DefaultTrainer(TrainerBase):
     """
     A trainer with default training logic. It does the following:
@@ -379,7 +380,14 @@ class DefaultTrainer(TrainerBase):
         data_loader = self.build_train_loader(cfg)
 
         model = create_ddp_model(model, broadcast_buffers=False, find_unused_parameters=True)
-        self._trainer = (AMPTrainer if cfg.SOLVER.AMP.ENABLED else SimpleTrainer)(
+        
+        if cfg.SOLVER.AMP.ENABLED:
+            trainer = AMPTrainer
+        else:
+            trainer = SimpleTrainer
+
+    
+        self._trainer = trainer(
             model, data_loader, optimizer
         )
 

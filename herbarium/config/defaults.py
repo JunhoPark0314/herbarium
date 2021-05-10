@@ -523,6 +523,9 @@ _C.SOLVER.MAX_ITER = 40000
 
 _C.SOLVER.BASE_LR = 0.001
 
+_C.SOLVER.ARCH_LR = 3e-4
+_C.SOLVER.ARCH_WEIGHT_DECAY = 1e-3
+
 _C.SOLVER.MOMENTUM = 0.9
 
 _C.SOLVER.NESTEROV = False
@@ -586,6 +589,8 @@ _C.SOLVER.ACCUMULATE_GRADIENTS.ACCUMULATE_BATCH = 512
 # Note that this does not change model's inference behavior.
 # To use AMP in inference, run inference under autocast()
 _C.SOLVER.AMP = CN({"ENABLED": False})
+
+_C.SOLVER.HIERARCHY = CN({"ENABLED": False})
 
 # ---------------------------------------------------------------------------- #
 # Specific test options

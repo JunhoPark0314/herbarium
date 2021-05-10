@@ -6,20 +6,22 @@ MODEL:
     OUT_FEATURES: ["block5","block6"]
   SIMPLENET:
     IN_FEATURES: ["block5", "block6"]
-    NUM_CLASSES: ["family", "order", "species"]
+    #NUM_CLASSES: ["family", "order", "species"]
+    NUM_CLASSES: ["family", "species"]
 DATASETS:
-  TRAIN: ("herb_2021_val",)
+  TRAIN: ("cub_2011_train",)
   TEST: ("herb_2021_val",)
 SOLVER:
-  IMS_PER_BATCH: 64
+  IMS_PER_BATCH: 16
   BASE_LR: 0.01  # Note that RetinaNet uses a different default learning rate
   STEPS: (60000, 80000)
   MAX_ITER: 90000
 INPUT:
-  MIN_SIZE_TRAIN: (224, 280)
+  MIN_SIZE_TRAIN: (240,250)
+  MAX_SIZE_TRAIN: 400
   MIN_SIZE_TEST: 400
   CROP:
-    SIZE: [0.6, 0.6]
+    SIZE: [0.8, 0.8]
 VERSION: 2
 DATALOADER:
   SAMPLER_TRAIN: "RepeatFactorTrainingSampler"

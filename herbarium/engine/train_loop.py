@@ -287,7 +287,7 @@ class SimpleTrainer(TrainerBase):
         wrap the optimizer with your custom `step()` method. But it is
         suboptimal as explained in https://arxiv.org/abs/2006.15704 Sec 3.2.4
         """
-        self.optimizer.step(closure=self.model.update_prior)
+        self.optimizer.step()
 
     def _write_metrics(
         self,

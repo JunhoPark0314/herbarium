@@ -42,8 +42,21 @@ def _get_herb_instances_meta(metadata_json):
     }
     return ret
 
+def _get_cub_instances_meta(classes_txt):
+    # TODO: Do some validation about metadata in here
+    if path.exists(classes_txt) is False:
+        return None
+    
+    with open(classes_txt) as classes_file:
+        classes = classes_file.readlines()
+        meta = {"num_classes": {"species": len(classes), "family": len(classes) // 10 }}
+        return meta
+
+
 def _get_builtin_metadata(dataset_name, metadata_json):
     if dataset_name == "herb":
         return _get_herb_instances_meta(metadata_json)
+    if dataset_name == "cub":
+        return _get_cub_instances_meta(metadata_json)
 
     raise KeyError("No built-in metadata for dataset {}".format(dataset_name))

@@ -1,5 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 from collections import defaultdict
+from herbarium.policy.defaults import build_policy
 from herbarium.utils.comm import all_gather
 import logging
 import math
@@ -9,6 +10,7 @@ import torch
 from fvcore.nn import sigmoid_focal_loss_jit
 from torch import Tensor, nn
 from torch.nn import functional as F
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 from herbarium.config import configurable
 from herbarium.data.dataset_utils import convert_image_to_rgb
@@ -113,8 +115,8 @@ class SimpleNet(nn.Module):
         self.input_format = input_format
         self.hierarchy_loss = hierarchy_loss
 
-        self.cls_loss_func = nn.CrossEntropyLoss()
-        self.div_loss_func = nn.KLDivLoss()
+        self.cls_loss_func = nn.CrossEntropyLoss(reduction="mean")
+        self.div_loss_func = nn.KLDivLoss(reduction="batchmean")
         
 
         self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1))
@@ -153,13 +155,7 @@ class SimpleNet(nn.Module):
     def device(self):
         return self.pixel_mean.device
 
-    def update_classifier(self):
-        self.head.update_hierarchy_classifier()
-
-    def update_prior(self):
-        self.head.update_hierarchy_prior()
-
-    def forward(self, batched_inputs: Tuple[Dict[str, Tensor]]):
+    def forward(self, batched_inputs: Tuple[Dict[str, Tensor]], val=False):
         """
         Args:
             batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
@@ -200,6 +196,11 @@ class SimpleNet(nn.Module):
                         pred_logits, images.image_sizes
                     )
                     #self.visualize_training(batched_inputs, results)
+                
+            """
+            if val is False:
+                del losses["family_loss"]
+            """
 
             return losses
         else:
@@ -225,21 +226,19 @@ class SimpleNet(nn.Module):
         """
         num_images = len(gt_labels)
 
-        if self.hierarchy_loss:
-            pass
-        else:
-            species_labels = torch.tensor([labels[0]["category_id"] for labels in gt_labels]).cuda()
-            family_labels, order_labels = self.head.label_from_prior(species_labels)
+        species_labels = torch.tensor([labels[0]["category_id"] for labels in gt_labels]).cuda()
+        family_labels = self.head.label_from_prior(species_labels)
+        #family_labels, order_labels = self.head.label_from_prior(species_labels)
 
-            species_loss = self.cls_loss_func(pred_logits["species"], species_labels)
-            family_loss = self.div_loss_func(F.log_softmax(pred_logits["family"], dim=1), family_labels)
-            order_loss = self.div_loss_func(F.log_softmax(pred_logits["order"], dim=1), order_labels)
+        species_loss = self.cls_loss_func(pred_logits["species"], species_labels)
+        family_loss = self.div_loss_func(F.log_softmax(pred_logits["family"], dim=1), family_labels)
+        #order_loss = self.div_loss_func(F.log_softmax(pred_logits["order"], dim=1), order_labels)
 
-            loss = {
-                "species_loss": species_loss,
-                "family_loss": family_loss,
-                "order_loss": order_loss,
-            }
+        loss = {
+            "species_loss": species_loss,
+            "family_loss": family_loss,
+            #"order_loss": order_loss,
+        }
 
         return loss
 
@@ -252,52 +251,6 @@ class SimpleNet(nn.Module):
         #v_gt = Visualizer(gt_annotation, results)
         vis_name = f"per-batch f1 score"
         storage.put_scalar(vis_name, f1_score(y_true, results))
-
-    @torch.no_grad()
-    def label_anchors(self, anchors, gt_instances):
-        """
-        Args:
-            anchors (list[Boxes]): A list of #feature level Boxes.
-                The Boxes contains anchors of this image on the specific feature level.
-            gt_instances (list[Instances]): a list of N `Instances`s. The i-th
-                `Instances` contains the ground-truth per-instance annotations
-                for the i-th input image.
-
-        Returns:
-            list[Tensor]:
-                List of #img tensors. i-th element is a vector of labels whose length is
-                the total number of anchors across all feature maps (sum(Hi * Wi * A)).
-                Label values are in {-1, 0, ..., K}, with -1 means ignore, and K means background.
-            list[Tensor]:
-                i-th element is a Rx4 tensor, where R is the total number of anchors across
-                feature maps. The values are the matched gt boxes for each anchor.
-                Values are undefined for those anchors not labeled as foreground.
-        """
-        anchors = Boxes.cat(anchors)  # Rx4
-
-        gt_labels = []
-        matched_gt_boxes = []
-        for gt_per_image in gt_instances:
-            match_quality_matrix = pairwise_iou(gt_per_image.gt_boxes, anchors)
-            matched_idxs, anchor_labels = self.anchor_matcher(match_quality_matrix)
-            del match_quality_matrix
-
-            if len(gt_per_image) > 0:
-                matched_gt_boxes_i = gt_per_image.gt_boxes.tensor[matched_idxs]
-
-                gt_labels_i = gt_per_image.gt_classes[matched_idxs]
-                # Anchors with label 0 are treated as background.
-                gt_labels_i[anchor_labels == 0] = self.num_classes
-                # Anchors with label -1 are ignored.
-                gt_labels_i[anchor_labels == -1] = -1
-            else:
-                matched_gt_boxes_i = torch.zeros_like(anchors.tensor)
-                gt_labels_i = torch.zeros_like(matched_idxs) + self.num_classes
-
-            gt_labels.append(gt_labels_i)
-            matched_gt_boxes.append(matched_gt_boxes_i)
-
-        return gt_labels, matched_gt_boxes
 
     def inference(
         self,
@@ -396,7 +349,9 @@ class SimpleNet(nn.Module):
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.backbone.size_divisibility)
         return images
-
+    
+    def arch_parameters(self):
+        return self.head.hierarchy_policy.parameters()
 
 class SimpleNetHead(nn.Module):
     """
@@ -411,9 +366,8 @@ class SimpleNetHead(nn.Module):
         input_shape: Dict[str,ShapeSpec],
         num_classes: Dict[str, int],
         norm="",
-        prior_prob=0.01,
         final_channel=512,
-        hierarchy_loss=False,
+        policy=None,
         hierarchy_prior=None,
     ):
         """
@@ -453,15 +407,18 @@ class SimpleNetHead(nn.Module):
 
         cls_score = defaultdict(list)
         for cls_level in list(num_classes.keys()):
-
             cls_score[cls_level] = nn.Conv2d(
                 final_channel, num_classes[cls_level], kernel_size=1, stride=1
             )
 
         self.cls_score = nn.ModuleDict(cls_score)
+        """
         self.hierarchy_prior = nn.ParameterDict({
             k: nn.Parameter(v, requires_grad=False) for k, v in hierarchy_prior.items()
         })
+        """
+        #self.hierarchy_prior = hierarchy_prior
+        self.hierarchy_policy = policy
 
         # Initialization
         for modules in [self.cls_subnet, self.cls_score]:
@@ -475,68 +432,34 @@ class SimpleNetHead(nn.Module):
         # Initialize higher class's classifier with lower class weight / bias and hierarchy priority
 
         #self.update_hierarchy_classifier()
-
-        # Use prior in model initialization to improve stability
-        #bias_value = -(math.log((1 - prior_prob) / prior_prob))
-        #torch.nn.init.constant_(self.cls_score.bias, bias_value)
     
     def label_from_prior(self, species_label):
-        family_label = self.hierarchy_prior["family|species"][species_label]
-        order_label = torch.einsum('ik,kj->ij',family_label,self.hierarchy_prior["order|family"])
-        return family_label, order_label 
+        #prior = self.hierarchy_prior["family|species"].cuda()
+        state = self.cls_score["species"].state_dict()
+        prior = torch.ones(200,20).cuda() / 20
+        new_hierarchy = self.hierarchy_policy(state,prior)
 
-    def update_hierarchy_prior(self):
-        species_classifier = self.cls_score["species"]
-        family_classifier = self.cls_score["family"]
-        order_classifier = self.cls_score["order"]       
 
-        
+        family_label = new_hierarchy[species_label]
+        return family_label
 
-        pass
-    
-    def update_hierarchy_classifier(self):
-        species_classifier = self.cls_score["species"]
-        family_classifier = self.cls_score["family"]
-        order_classifier = self.cls_score["order"]
-
-        family_species_hierarchy = self.hierarchy_prior["family|species"].t()
-        order_family_hierarchy = self.hierarchy_prior["order|family"].t()
-        order_species_hierarchy = torch.einsum("ik,kj->ij", order_family_hierarchy, family_species_hierarchy)
-
-        F, S = family_species_hierarchy.shape
-        O, S = order_species_hierarchy.shape
-        C = species_classifier.weight.shape[1]
-
-        species_weight = species_classifier.state_dict()["weight"].view(S, C)
-        species_bias = species_classifier.state_dict()["bias"]
-        family_classifier_state = family_classifier.state_dict()
-        order_classifier_state = order_classifier.state_dict()
-
-        family_classifier_state["weight"] = torch.einsum('ik,kj->ij',family_species_hierarchy,species_weight).view(F, C, 1, 1)
-        order_classifier_state["weight"] = torch.einsum('ik,kj->ij',order_species_hierarchy,species_weight).view(O, C, 1, 1)
-
-        family_classifier_state["bias"] = torch.einsum('ij,j->i',family_species_hierarchy,species_bias)
-        order_classifier_state["bias"] = torch.einsum('ij,j->i',order_species_hierarchy,species_bias)
-
-        family_classifier.load_state_dict(family_classifier_state)
-        order_classifier.load_state_dict(order_classifier_state)
+        #order_label = torch.einsum('ik,kj->ij',family_label,self.hierarchy_prior["order|family"])
+        #return family_label, order_label 
 
     @classmethod
     def from_config(cls, cfg, input_shape: List[ShapeSpec], final_channel = 512):
         meta = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
         num_classes = {f: meta.num_classes[f] for f in cfg.MODEL.SIMPLENET.NUM_CLASSES}
-        hierarchy_prior = {
-            "order|family": meta.order_family_hierarchy,
-            "family|species": meta.family_species_hierarchy,
-        }
+        hierarchy_prior = meta.hierarchy_prior
+        policy = build_policy(cfg)
+
         return {
             "input_shape": input_shape,
             "num_classes": num_classes,
-            "prior_prob": cfg.MODEL.SIMPLENET.PRIOR_PROB,
             "norm": cfg.MODEL.SIMPLENET.NORM,
             "final_channel": final_channel,
-            "hierarchy_loss": cfg.MODEL.SIMPLENET.HIERARCHY_LOSS,
-            "hierarchy_prior": hierarchy_prior
+            "hierarchy_prior": hierarchy_prior,
+            "policy": policy
         }
 
     def forward(self, features: List[Tensor]):

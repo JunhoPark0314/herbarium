@@ -25,7 +25,7 @@ import herbarium.utils.comm as comm
 from herbarium.checkpoint import Checkpointer
 from herbarium.config import get_cfg
 from herbarium.data import MetadataCatalog
-from herbarium.engine import DefaultTrainer, default_argument_parser, default_setup, hooks, launch
+from herbarium.engine import DefaultTrainer, default_argument_parser, default_setup, hooks, launch, HierarchyTrainer
 from herbarium.evaluation import (
     HERBEvaluator,
     DatasetEvaluators,
@@ -33,7 +33,7 @@ from herbarium.evaluation import (
 )
 
 
-class Trainer(DefaultTrainer):
+class Trainer(HierarchyTrainer):
     """
     We use the "DefaultTrainer" which contains pre-defined default logic for
     standard training workflow. They may not work for you, especially if you

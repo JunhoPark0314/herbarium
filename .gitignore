@@ -51,3 +51,4 @@ _darcs
 /projects/*/datasets
 /models
 /snippet
+herbarium/engine/hierarchy_train_loop.py
