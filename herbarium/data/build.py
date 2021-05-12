@@ -163,6 +163,7 @@ def build_batch_data_loader(
     )
 
     batch_size = total_batch_size // world_size
+    #torch.multiprocessing.set_sharing_strategy('file_system')
     if aspect_ratio_grouping:
         data_loader = torch.utils.data.DataLoader(
             dataset,
@@ -171,6 +172,7 @@ def build_batch_data_loader(
             batch_sampler=None,
             collate_fn=operator.itemgetter(0),  # don't batch, but yield individual elements
             worker_init_fn=worker_init_reset_seed,
+            pin_memory=True
         )  # yield individual mapped dict
         return AspectRatioGroupedDataset(data_loader, batch_size)
     else:

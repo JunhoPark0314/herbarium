@@ -3,21 +3,21 @@ MODEL:
   BACKBONE:
     NAME: "build_efficientnet_backbone"
   EFFICIENT:
-    OUT_FEATURES: ["block5","block6"]
+    OUT_FEATURES: ["block6"]
   SIMPLENET:
-    IN_FEATURES: ["block5", "block6"]
+    IN_FEATURES: ["block6"]
     #NUM_CLASSES: ["family", "order", "species"]
     NUM_CLASSES: ["family", "species"]
 DATASETS:
-  TRAIN: ("cub_2011_train",)
-  TEST: ("herb_2021_val",)
+  TRAIN: ("herb_2021_4","herb_2021_5","herb_2021_8", "herb_2021_9")
+  TEST: ("herb_2021_0",)
 SOLVER:
-  IMS_PER_BATCH: 16
+  IMS_PER_BATCH: 64
   BASE_LR: 0.01  # Note that RetinaNet uses a different default learning rate
-  STEPS: (60000, 80000)
-  MAX_ITER: 90000
+  STEPS: (80000, 100000)
+  MAX_ITER: 130000
 INPUT:
-  MIN_SIZE_TRAIN: (240,250)
+  MIN_SIZE_TRAIN: (240,280)
   MAX_SIZE_TRAIN: 400
   MIN_SIZE_TEST: 400
   CROP:
@@ -25,6 +25,6 @@ INPUT:
 VERSION: 2
 DATALOADER:
   SAMPLER_TRAIN: "RepeatFactorTrainingSampler"
-  REPEAT_THRESHOLD: 1e-7
-  NUM_WORKERS: 10
+  REPEAT_THRESHOLD: 1e-6
+  NUM_WORKERS: 20
   ASPECT_RATIO_GROUPING: True

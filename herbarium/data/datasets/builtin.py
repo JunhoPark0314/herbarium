@@ -33,6 +33,17 @@ _PREDEFINED_SPLITS_HERB["herb"] = {
     "herb_2021_train": ("herb/2021/train", "metadata.json", "train_annotations.json"),
     "herb_2021_val": ("herb/2021/train", "metadata.json", "val_annotations.json"),
     "herb_2021_test": ("herb/2021/test", "metadata.json", "annotations.json"),
+    "herb_2021_0": ("herb/2021/train", "metadata.json", "0_annotations.json"),
+    "herb_2021_1": ("herb/2021/train", "metadata.json", "1_annotations.json"),
+    "herb_2021_2": ("herb/2021/train", "metadata.json", "2_annotations.json"),
+    "herb_2021_3": ("herb/2021/train", "metadata.json", "3_annotations.json"),
+    "herb_2021_4": ("herb/2021/train", "metadata.json", "4_annotations.json"),
+    "herb_2021_5": ("herb/2021/train", "metadata.json", "5_annotations.json"),
+    "herb_2021_6": ("herb/2021/train", "metadata.json", "6_annotations.json"),
+    "herb_2021_7": ("herb/2021/train", "metadata.json", "7_annotations.json"),
+    "herb_2021_8": ("herb/2021/train", "metadata.json", "8_annotations.json"),
+    "herb_2021_9": ("herb/2021/train", "metadata.json", "9_annotations.json"),
+
 }
 
 _PREDEFINED_SPLITS_CUB = {}

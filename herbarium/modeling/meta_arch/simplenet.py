@@ -187,7 +187,7 @@ class SimpleNet(nn.Module):
             assert "annotations" in batched_inputs[0], "annotations are missing in training!"
             gt_annotations = [x["annotations"] for x in batched_inputs]
 
-            losses = self.losses(pred_logits, gt_annotations)
+            losses, new_hierarchy = self.losses(pred_logits, gt_annotations)
 
             if self.vis_period > 0:
                 storage = get_event_storage()
@@ -196,12 +196,6 @@ class SimpleNet(nn.Module):
                         pred_logits, images.image_sizes
                     )
                     #self.visualize_training(batched_inputs, results)
-                
-            """
-            if val is False:
-                del losses["family_loss"]
-            """
-
             return losses
         else:
             results = self.inference(pred_logits, images.image_sizes)
@@ -227,7 +221,7 @@ class SimpleNet(nn.Module):
         num_images = len(gt_labels)
 
         species_labels = torch.tensor([labels[0]["category_id"] for labels in gt_labels]).cuda()
-        family_labels = self.head.label_from_prior(species_labels)
+        family_labels, new_hierarchy, hreg_loss = self.head.label_from_prior(species_labels)
         #family_labels, order_labels = self.head.label_from_prior(species_labels)
 
         species_loss = self.cls_loss_func(pred_logits["species"], species_labels)
@@ -237,10 +231,10 @@ class SimpleNet(nn.Module):
         loss = {
             "species_loss": species_loss,
             "family_loss": family_loss,
-            #"order_loss": order_loss,
+            "hierarchy_reg_loss": hreg_loss,
         }
 
-        return loss
+        return loss, new_hierarchy
 
     def visualize_training(self, batched_inputs, results):
         #from herbarium.utils.visualizer import Visualizer
@@ -345,7 +339,7 @@ class SimpleNet(nn.Module):
         """
         Normalize, pad and batch the input images.
         """
-        images = [x["image"].to(self.device) for x in batched_inputs]
+        images = [x["image"].to(self.device, non_blocking=True) for x in batched_inputs]
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.backbone.size_divisibility)
         return images
@@ -412,11 +406,10 @@ class SimpleNetHead(nn.Module):
             )
 
         self.cls_score = nn.ModuleDict(cls_score)
-        """
         self.hierarchy_prior = nn.ParameterDict({
             k: nn.Parameter(v, requires_grad=False) for k, v in hierarchy_prior.items()
         })
-        """
+
         #self.hierarchy_prior = hierarchy_prior
         self.hierarchy_policy = policy
 
@@ -436,22 +429,24 @@ class SimpleNetHead(nn.Module):
     def label_from_prior(self, species_label):
         #prior = self.hierarchy_prior["family|species"].cuda()
         state = self.cls_score["species"].state_dict()
-        prior = torch.ones(200,20).cuda() / 20
-        new_hierarchy = self.hierarchy_policy(state,prior)
-
+        #prior = torch.ones(200,20).cuda() / 20
+        new_hierarchy, hreg_loss = self.hierarchy_policy(state,self.hierarchy_prior["family|species"])
 
         family_label = new_hierarchy[species_label]
-        return family_label
+        return family_label, new_hierarchy, hreg_loss
 
         #order_label = torch.einsum('ik,kj->ij',family_label,self.hierarchy_prior["order|family"])
         #return family_label, order_label 
 
     @classmethod
     def from_config(cls, cfg, input_shape: List[ShapeSpec], final_channel = 512):
-        meta = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
+        if "herb" in cfg.DATASETS.TRAIN[0]:
+            meta = MetadataCatalog.get("herb_2021_train")
+        else:
+            meta = MetadataCatalog.get(cfg.DATASET.TRAIN[0])
         num_classes = {f: meta.num_classes[f] for f in cfg.MODEL.SIMPLENET.NUM_CLASSES}
         hierarchy_prior = meta.hierarchy_prior
-        policy = build_policy(cfg)
+        policy = build_policy(cfg, hierarchy_prior)
 
         return {
             "input_shape": input_shape,

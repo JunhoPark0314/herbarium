@@ -188,7 +188,7 @@ def load_herb_json(json_file, image_root, dataset_name=None, extra_annotation_ke
 
 
     if "test" not in dataset_name:
-        meta = MetadataCatalog.get(dataset_name)
+        meta = MetadataCatalog.get("herb_2021_train")
         dataset_dicts = [process_per_record(anns, image_root, ann_keys, meta) for anns in imgs_anns]
 
     logger.info("Processing Record takes {:.2f} seconds.".format(timer.seconds()))
@@ -401,7 +401,8 @@ def register_herb_instances(name, metadata, json_file, image_root):
             json_file=json_file, image_root=image_root, evaluator_type="herb", **metadata
         )
 
-        update_meta(json_file, name)
+        if name == "herb_2021_train":
+            update_meta(json_file, name)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import itertools
 import copy
+import sys
 from tqdm import tqdm
 from fvcore.common.timer import Timer
 
@@ -71,7 +72,7 @@ def create_metadata(annotation_json):
 
     return ret
 
-def create_train_val_split(annotation_json, meta):
+def create_train_val_split(annotation_json, meta, num_split):
     with open(annotation_json) as annotation_file:
         dataset = json.load(annotation_file)
     
@@ -79,64 +80,83 @@ def create_train_val_split(annotation_json, meta):
     annotation.sort(key=lambda x: x['id'])
     image_list = dataset["images"]
     image_list.sort(key=lambda x: x['id'])
+    per_split_image = 25
 
-    train_ann = []
-    val_ann = []
-
-    train_image = []
-    val_image = []
+    ann_split = defaultdict(list)
+    image_split = defaultdict(list)
 
     annotation_per_id = defaultdict(list)
     for ann in annotation:
         annotation_per_id[ann["category_id"]].append(ann)
     
+    class generator:
+        def __init__(self, data):
+            self.data = data
+            np.random.shuffle(self.data)
+            self.st = 0
+            self.en = 0 
+
+        def __call__(self, num):
+            self.en = self.st + num
+            curr_set = self.data[self.st:self.en]
+            if len(curr_set) < num:
+                self.st = 0
+                num -= len(curr_set)
+                self.en = num
+                np.random.shuffle(self.data)
+                curr_set = np.concatenate((curr_set, self.data[self.st:self.en]))
+            return curr_set
+                
     len_per_id = []
     for key, val in tqdm(annotation_per_id.items()):
         per_id_len = len(val)
         len_per_id.append(per_id_len)
         split = np.arange(per_id_len)
-        np.random.shuffle(split)
-        limit = int(0.7*per_id_len)
+        split = generator(split) 
 
-        if limit < 5:
-            limit = per_id_len - 1
+        for _ in range(num_split):
 
-        curr_train_ann = np.array(val)[split[:limit]].tolist()
-        train_ann.extend(curr_train_ann)
+            batch = per_split_image
+            if per_id_len // per_split_image < 1:
+                batch = per_id_len
+                if _ > 3:
+                    batch = per_id_len // 4 + 1
+                if _ > 7:
+                    continue
+            
+            curr_ann = np.array(val)[split(batch)].tolist()
 
-        curr_test_ann = np.array(val)[split[limit:]].tolist()
-        val_ann.extend(curr_test_ann)
+            ann_split[_].extend(curr_ann) 
 
-        for ann in curr_train_ann:
-            train_image.append(image_list[ann['image_id']])
-        
-        for ann in curr_test_ann:
-            val_image.append(image_list[ann['image_id']])
+            for ann in curr_ann:
+                image_split[_].append(image_list[ann["image_id"]])
 
-    train_annotation_json = os.path.join(Path(annotation_json).parent, "train_annotations.json")
-    val_annotation_json = os.path.join(Path(annotation_json).parent, "val_annotations.json")
 
-    if os.path.exists(train_annotation_json) is False:
-        timer = Timer()
-        print("Write train dataset")
-        with open(train_annotation_json,"w") as train_ann_file:
-            dataset["annotations"] = train_ann
-            dataset["images"] = train_image
-            json.dump(dataset, train_ann_file)
-        print("{} seconds to write train annotation file".format(timer.seconds()))
+    class JsonProgress(object):
+        def __init__(self):
+            self.count = 0
 
-    if os.path.exists(val_annotation_json) is False:
-        timer = Timer()
-        print("Write val dataset")
-        with open(val_annotation_json,"w") as val_ann_file:
-            dataset["annotations"] = val_ann
-            dataset["images"] = val_image
-            json.dump(dataset, val_ann_file)
-        print("{} seconds to write train annotation file".format(timer.seconds()))
-    
+        def __call__(self, obj):
+            self.count += 1
+            sys.stdout.write("\r%8d" % self.count)
+            return obj
+
+
+    for _ in range(num_split):
+        annotation_json_path = os.path.join(Path(annotation_json).parent, "{}_annotations.json".format(_))
+        if os.path.exists(annotation_json_path) is False:
+            timer = Timer()
+            print("Write train dataset")
+            with open(annotation_json_path,"w") as train_ann_file:
+                dataset["annotations"] = ann_split[_]
+                dataset["images"] = image_split[_]
+                json.dump(dataset, train_ann_file)
+            print("{} seconds to write {} annotation file".format(timer.seconds(), _))
+
     return 
 
 if __name__ == "__main__":
+    num_split = 10
 
     for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_HERB.items():
         for key, (dataset_root, metadata_file, annotation_file) in splits_per_dataset.items():
@@ -155,13 +175,19 @@ if __name__ == "__main__":
             if "train" in key:
                 # If this dataset is train dataset, create metadata file and split into validation
 
-                print("Train dataset! Create metadata from annotation file.")
-                metadata = create_metadata(annotation_path)
                 new_metadata_path = os.path.join(DATASET_ROOT, Path(dataset_root).parent, metadata_file)
-                with open(new_metadata_path, "w") as new_metadata_file:
-                    json.dump(metadata, new_metadata_file)
+
+
+                if not os.path.isfile(new_metadata_path):
+                    print("Train dataset! Create metadata from annotation file.")
+                    metadata = create_metadata(annotation_path)
+                    with open(new_metadata_path, "w") as new_metadata_file:
+                        json.dump(metadata, new_metadata_file)
+                else:
+                    with open(new_metadata_path,"r") as new_metadata_file:
+                        metadata = json.load(new_metadata_file)
 
                 # TODO: split train to train and validation in here
 
                 print("Split dataset into train and val")
-                create_train_val_split(annotation_path, metadata)
+                create_train_val_split(annotation_path, metadata, num_split)

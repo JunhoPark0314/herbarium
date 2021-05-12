@@ -48,8 +48,8 @@ class HierarchyTrainer(TrainerBase):
 
         # Assume these objects must be constructed in this order.
         model = build_model(cfg)
-        controller = build_controller(cfg, model)
         optimizer = build_optimizer(cfg, model)
+        controller = build_controller(cfg, model)
         train_data_loader = build_general_train_loader(cfg)
         # TODO: Need to change here for validation dataset loader
         val_data_loader = train_data_loader
@@ -181,7 +181,7 @@ class HierarchyTrainLoop(TrainerBase):
         self.controller = controller
         self.train_data_loader = train_data_loader
         self._train_data_loader_iter = iter(train_data_loader)
-        self._val_data_loader_iter = iter(val_data_loader)
+        self._val_data_loader_iter = self._train_data_loader_iter
         self.optimizer = optimizer
 
     def run_step(self, lr):
@@ -198,17 +198,25 @@ class HierarchyTrainLoop(TrainerBase):
 
         data_time = time.perf_counter() - start
 
+        start = time.perf_counter()
+
         self.controller.step(train_batch, val_batch, lr, self.optimizer)
+
+        controller_time = time.perf_counter() - start
 
         self.optimizer.zero_grad()
         self.controller.optimizer.zero_grad()
+
+        start = time.perf_counter()
 
         loss_dict = self.model(train_batch)
         losses = sum(loss_dict.values())
 
         losses.backward()
 
-        self._write_metrics(loss_dict, data_time)
+        base_time = time.perf_counter() - start
+
+        self._write_metrics(loss_dict, data_time, controller_time, base_time)
 
         self.optimizer.step()
 
@@ -228,6 +236,8 @@ class HierarchyTrainLoop(TrainerBase):
         self,
         loss_dict: Dict[str, torch.Tensor],
         data_time: float,
+        controller_time: float,
+        base_time: float,
         prefix: str = "",
     ):
         """
@@ -237,6 +247,8 @@ class HierarchyTrainLoop(TrainerBase):
         """
         metrics_dict = {k: v.detach().cpu().item() for k, v in loss_dict.items()}
         metrics_dict["data_time"] = data_time
+        metrics_dict["controller_time"] = controller_time
+        metrics_dict["base_time"] = base_time
 
         # Gather metrics among all workers for logging
         # This assumes we do DDP-style training, which is currently the only
@@ -249,7 +261,12 @@ class HierarchyTrainLoop(TrainerBase):
             # data_time among workers can have high variance. The actual latency
             # caused by data_time is the maximum among workers.
             data_time = np.max([x.pop("data_time") for x in all_metrics_dict])
+            controller_time = np.max([x.pop("controller_time") for x in all_metrics_dict])
+            base_time = np.max([x.pop("base_time") for x in all_metrics_dict])
+
             storage.put_scalar("data_time", data_time)
+            storage.put_scalar("controller_time", controller_time)
+            storage.put_scalar("base_time", base_time)
 
             # average the rest metrics
             metrics_dict = {
