@@ -388,7 +388,7 @@ class EfficientNet(Backbone):
 
     @classmethod
     def from_pretrained(cls, model_name, weights_path=None, advprop=False,
-                        in_channels=3, num_classes=1000, **override_params):
+                        in_channels=3, num_classes=1000, from_pretrained=True, **override_params):
         """Create an efficientnet model according to name.
 
         Args:
@@ -416,8 +416,9 @@ class EfficientNet(Backbone):
             A pretrained efficientnet model.
         """
         model = cls.from_name(model_name, num_classes=num_classes, **override_params)
-        load_pretrained_weights(model, model_name, weights_path=weights_path,
-                                load_fc=(num_classes == 1000), advprop=advprop)
+        if from_pretrained:
+            load_pretrained_weights(model, model_name, weights_path=weights_path,
+                                    load_fc=(num_classes == 1000), advprop=advprop)
         model._change_in_channels(in_channels)
         return model
 
@@ -515,5 +516,6 @@ def build_efficientnet_backbone(cfg, input_shape):
     parameter_per_scale["out_features"] = out_features
     parameter_per_scale["image_size"] = None
     parameter_per_scale["num_classes"] = None
+    parameter_per_scale["from_pretrained"] = cfg.MODEL.PRETRAINED
 
     return EfficientNet.from_pretrained(**parameter_per_scale).freeze(freeze_at)

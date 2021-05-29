@@ -2,15 +2,17 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 
 from collections import defaultdict
+from herbarium.evaluation.testing import print_csv_format
+from herbarium.evaluation.evaluator import DatasetEvaluator, inference_on_dataset
 from herbarium.modeling.meta_arch.build import build_model
-from herbarium.data.build import build_general_train_loader
+from herbarium.data.build import build_general_test_loader, build_general_train_loader
 from herbarium.engine.train_loop import TrainerBase
 from herbarium.solver.build import build_lr_scheduler, build_optimizer
 import logging
 import numpy as np
 import time
 import weakref
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, OrderedDict
 import torch
 from torch import nn
 from torch.nn.parallel import DataParallel, DistributedDataParallel
@@ -27,6 +29,7 @@ from . import hooks
 from .controller import build_controller
 import copy
 from fvcore.nn.precise_bn import get_bn_modules
+import torch.cuda.profiler as profiler
 
 class HierarchyTrainer(TrainerBase):
     """
@@ -55,7 +58,6 @@ class HierarchyTrainer(TrainerBase):
         val_data_loader = train_data_loader
 
         model = create_ddp_model(model, broadcast_buffers=False, find_unused_parameters=True)
-        
     
         self._trainer = HierarchyTrainLoop(
             model, controller, train_data_loader, val_data_loader, optimizer,
@@ -79,6 +81,7 @@ class HierarchyTrainer(TrainerBase):
     def run_step(self):
         self._trainer.iter = self.iter
         # TODO: Check here to get current learning rate
+        #with torch.autograd.profiler.emit_nvtx():
         self._trainer.run_step(self.scheduler.get_lr()[0])
 
     def build_hooks(self):
@@ -116,7 +119,7 @@ class HierarchyTrainer(TrainerBase):
             ret.append(hooks.PeriodicCheckpointer(self.checkpointer, cfg.SOLVER.CHECKPOINT_PERIOD))
 
         def test_and_save_results():
-            self._last_eval_results = self.test(self.cfg, self.model)
+            self._last_eval_results = self.test(self.cfg, self._trainer.model)
             return self._last_eval_results
 
         # Do evaluation after checkpointer, because then if it fails,
@@ -174,6 +177,102 @@ class HierarchyTrainer(TrainerBase):
             ), "No evaluation results obtained during training!"
             verify_results(self.cfg, self._last_eval_results)
             return self._last_eval_results
+
+    @classmethod
+    def build_model(cls, cfg):
+        """
+        Returns:
+            torch.nn.Module:
+
+        It now calls :func:`herbarium.modeling.build_model`.
+        Overwrite it if you'd like a different model.
+        """
+        model = build_model(cfg)
+        logger = logging.getLogger(__name__)
+        logger.info("Model:\n{}".format(model))
+        return model
+
+    @classmethod
+    def build_test_loader(cls, cfg, dataset_name):
+        """
+        Returns:
+            iterable
+
+        It now calls :func:`herbarium.data.build_detection_test_loader`.
+        Overwrite it if you'd like a different data loader.
+        """
+        return build_general_test_loader(cfg, dataset_name, total_batch_size=cfg.SOLVER.IMS_PER_BATCH)
+
+    @classmethod
+    def build_evaluator(cls, cfg, dataset_name):
+        """
+        Returns:
+            DatasetEvaluator or None
+
+        It is not implemented by default.
+        """
+        raise NotImplementedError(
+            """
+If you want DefaultTrainer to automatically run evaluation,
+please implement `build_evaluator()` in subclasses (see train_net.py for example).
+Alternatively, you can call evaluation functions yourself (see Colab balloon tutorial for example).
+"""
+        )
+
+
+    @classmethod
+    def test(cls, cfg, model, evaluators=None):
+        """
+        Args:
+            cfg (CfgNode):
+            model (nn.Module):
+            evaluators (list[DatasetEvaluator] or None): if None, will call
+                :meth:`build_evaluator`. Otherwise, must have the same length as
+                ``cfg.DATASETS.TEST``.
+
+        Returns:
+            dict: a dict of result metrics
+        """
+        logger = logging.getLogger(__name__)
+        if isinstance(evaluators, DatasetEvaluator):
+            evaluators = [evaluators]
+        if evaluators is not None:
+            assert len(cfg.DATASETS.TEST) == len(evaluators), "{} != {}".format(
+                len(cfg.DATASETS.TEST), len(evaluators)
+            )
+
+        results = OrderedDict()
+        for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
+            data_loader = cls.build_test_loader(cfg, dataset_name)
+            # When evaluators are passed in as arguments,
+            # implicitly assume that evaluators can be created before data_loader.
+            if evaluators is not None:
+                evaluator = evaluators[idx]
+            else:
+                try:
+                    evaluator = cls.build_evaluator(cfg, dataset_name)
+                except NotImplementedError:
+                    logger.warn(
+                        "No evaluator found. Use `DefaultTrainer.test(evaluators=)`, "
+                        "or implement its `build_evaluator` method."
+                    )
+                    results[dataset_name] = {}
+                    continue
+            results_i = inference_on_dataset(model, data_loader, evaluator)
+            results[dataset_name] = results_i
+            if comm.is_main_process():
+                assert isinstance(
+                    results_i, dict
+                ), "Evaluator must return a dict on the main process. Got {} instead.".format(
+                    results_i
+                )
+                logger.info("Evaluation results for {} in csv format:".format(dataset_name))
+                #print_csv_format(results_i)
+                print(results_i)
+
+        if len(results) == 1:
+            results = list(results.values())[0]
+        return results
     
 class HierarchyTrainLoop(TrainerBase):
     def __init__(self, model, controller, train_data_loader, val_data_loader, optimizer):
@@ -200,7 +299,10 @@ class HierarchyTrainLoop(TrainerBase):
 
         start = time.perf_counter()
 
+        
+        #profiler.start()
         self.controller.step(train_batch, val_batch, lr, self.optimizer)
+        #profiler.stop()
 
         controller_time = time.perf_counter() - start
 

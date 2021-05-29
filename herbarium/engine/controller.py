@@ -20,6 +20,7 @@ class Controller(object):
 
         params = dict(self.model.named_parameters())
         self.rk = [pk for pk in list(params.keys()) if params[pk].requires_grad]
+        self.first_order = False
 
     def step(self, train_batch, valid_batch, eta, network_optimizer):
         self.optimizer.zero_grad()
@@ -29,37 +30,46 @@ class Controller(object):
         self.optimizer.step()
 
     def _backward_step_unrolled(self, train_batch, val_batch, eta, network_optimizer):
-        start = time.perf_counter()
-        unrolled_model = self._compute_unrolled_model_wi_optimizer(train_batch, eta, network_optimizer)
-        unroll_time = time.perf_counter() - start
+        if self.first_order:
+            start = time.perf_counter()
+            network_optimizer.zero_grad()
+            unrolled_loss_dict = self.model(val_batch, val=True)
+            unrolled_loss = sum(unrolled_loss_dict.values())
+            unrolled_loss.backward()
+            val_time = time.perf_counter() - start
+            #print(val_time)
+        else:
+            start = time.perf_counter()
+            unrolled_model = self._compute_unrolled_model_wi_optimizer(train_batch, eta, network_optimizer)
+            unroll_time = time.perf_counter() - start
 
-        start = time.perf_counter()
-        network_optimizer.zero_grad()
-        unrolled_loss_dict = unrolled_model(val_batch, val=True)
-        unrolled_loss = sum(unrolled_loss_dict.values())
-        unrolled_loss.backward()
-        val_time = time.perf_counter() - start
+            start = time.perf_counter()
+            network_optimizer.zero_grad()
+            unrolled_loss_dict = unrolled_model(val_batch, val=True)
+            unrolled_loss = sum(unrolled_loss_dict.values())
+            unrolled_loss.backward()
+            val_time = time.perf_counter() - start
 
-        start = time.perf_counter()
-        dalpha = [v.grad for v in unrolled_model.arch_parameters() if v.requires_grad]
-        vector = list(itemgetter(*self.rk)(dict(unrolled_model.named_parameters())))
-        vector = [v.grad.data for v in vector]
-        #implicit_grads = self._hessian_vector_product(vector, train_batch, self.rk)
-        implicit_grads = self._hessian_vector_product_wi_copy(vector, train_batch, self.rk, network_optimizer)
+            start = time.perf_counter()
+            dalpha = [v.grad for v in unrolled_model.arch_parameters() if v.requires_grad]
+            vector = list(itemgetter(*self.rk)(dict(unrolled_model.named_parameters())))
+            vector = [v.grad.data for v in vector]
+            #implicit_grads = self._hessian_vector_product(vector, train_batch, self.rk)
+            implicit_grads = self._hessian_vector_product_wi_copy(vector, train_batch, self.rk, network_optimizer)
 
-        for g, ig in zip(dalpha, implicit_grads):
-            g.data.sub_(eta, ig.data)
+            for g, ig in zip(dalpha, implicit_grads):
+                g.data.sub_(eta, ig.data)
 
-        # TODO: Change here 
-        for v, g in zip(self.model.arch_parameters(), dalpha):
-            if v.grad is None:
-                v.grad = g.data
-            else:
-                v.grad.data.copy_(g.data)
-        hess_time = time.perf_counter() - start
+            # TODO: Change here 
+            for v, g in zip(self.model.arch_parameters(), dalpha):
+                if v.grad is None:
+                    v.grad = g.data
+                else:
+                    v.grad.data.copy_(g.data)
+            hess_time = time.perf_counter() - start
 
-        whole_time = unroll_time + val_time + hess_time
-        print(unroll_time / whole_time, val_time / whole_time, hess_time / whole_time, whole_time)
+            whole_time = unroll_time + val_time + hess_time
+            #print(unroll_time / whole_time, val_time / whole_time, hess_time / whole_time, whole_time)
 
     def _compute_unrolled_model(self, train_batch, eta, network_optimizer):
         loss_dict = self.model(train_batch)

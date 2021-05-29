@@ -33,6 +33,7 @@ from herbarium.evaluation import (
 )
 
 
+
 class Trainer(HierarchyTrainer):
     """
     We use the "DefaultTrainer" which contains pre-defined default logic for

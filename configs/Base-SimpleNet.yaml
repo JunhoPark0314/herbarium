@@ -9,22 +9,28 @@ MODEL:
     #NUM_CLASSES: ["family", "order", "species"]
     NUM_CLASSES: ["family", "species"]
 DATASETS:
-  TRAIN: ("herb_2021_4","herb_2021_5","herb_2021_8", "herb_2021_9")
-  TEST: ("herb_2021_0",)
-SOLVER:
+  #TRAIN: ("herb_2021_train","herb_2021_2","herb_2021_4","herb_2021_5","herb_2021_6","herb_2021_8", "herb_2021_9")
+  #TRAIN: ("herb_2021_0",)
+  #TRAIN: ("herb_2021_0","herb_2021_1","herb_2021_2", "herb_2021_3", "herb_2021_val", "herb_2021_6", "herb_2021_7")
+  TRAIN: ("cub_2011_train",)
+  #TEST: ("herb_2021_val",)
+  TEST: ("cub_2011_test",)
+SOLVER: 
   IMS_PER_BATCH: 64
-  BASE_LR: 0.01  # Note that RetinaNet uses a different default learning rate
-  STEPS: (80000, 100000)
-  MAX_ITER: 130000
+  BASE_LR: 0.1  # Note that RetinaNet uses a different default learning rate
+  STEPS: (20000, 50000)
+  MAX_ITER: 90000
 INPUT:
-  MIN_SIZE_TRAIN: (240,280)
-  MAX_SIZE_TRAIN: 400
-  MIN_SIZE_TEST: 400
+  MIN_SIZE_TRAIN: (224,320)
+  MAX_SIZE_TRAIN: 500
+  MIN_SIZE_TEST: 256
   CROP:
-    SIZE: [0.8, 0.8]
+    SIZE: [0.9, 0.9]
 VERSION: 2
 DATALOADER:
-  SAMPLER_TRAIN: "RepeatFactorTrainingSampler"
-  REPEAT_THRESHOLD: 1e-6
-  NUM_WORKERS: 20
+  SAMPLER_TRAIN: "TrainingSampler"
+  REPEAT_THRESHOLD: 1e-8
+  NUM_WORKERS: 10
   ASPECT_RATIO_GROUPING: True
+TEST:
+  EVAL_PERIOD: 5000

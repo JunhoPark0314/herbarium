@@ -187,7 +187,7 @@ class SimpleNet(nn.Module):
             assert "annotations" in batched_inputs[0], "annotations are missing in training!"
             gt_annotations = [x["annotations"] for x in batched_inputs]
 
-            losses, new_hierarchy = self.losses(pred_logits, gt_annotations)
+            losses = self.losses(pred_logits, gt_annotations)
 
             if self.vis_period > 0:
                 storage = get_event_storage()
@@ -221,8 +221,8 @@ class SimpleNet(nn.Module):
         num_images = len(gt_labels)
 
         species_labels = torch.tensor([labels[0]["category_id"] for labels in gt_labels]).cuda()
-        family_labels, new_hierarchy, hreg_loss = self.head.label_from_prior(species_labels)
-        #family_labels, order_labels = self.head.label_from_prior(species_labels)
+        family_labels, hreg_loss = self.head.label_from_prior(species_labels)
+        family_labels, order_labels = self.head.label_from_prior(species_labels)
 
         species_loss = self.cls_loss_func(pred_logits["species"], species_labels)
         family_loss = self.div_loss_func(F.log_softmax(pred_logits["family"], dim=1), family_labels)
@@ -231,10 +231,10 @@ class SimpleNet(nn.Module):
         loss = {
             "species_loss": species_loss,
             "family_loss": family_loss,
-            "hierarchy_reg_loss": hreg_loss,
+            #"hierarchy_reg_loss": hreg_loss,
         }
 
-        return loss, new_hierarchy
+        return loss
 
     def visualize_training(self, batched_inputs, results):
         #from herbarium.utils.visualizer import Visualizer
@@ -262,8 +262,8 @@ class SimpleNet(nn.Module):
         Returns:
             results (List[Instances]): a list of #images elements.
         """
-        num_images = pred_logits["leaf"].shape[0]
-        pred = pred_logits["leaf"].view(num_images, -1)
+        num_images = pred_logits["species"].shape[0]
+        pred = pred_logits["species"].view(num_images, -1)
         result = pred.view(num_images, -1).argmax(dim=1)
         return result
 
@@ -430,10 +430,8 @@ class SimpleNetHead(nn.Module):
         #prior = self.hierarchy_prior["family|species"].cuda()
         state = self.cls_score["species"].state_dict()
         #prior = torch.ones(200,20).cuda() / 20
-        new_hierarchy, hreg_loss = self.hierarchy_policy(state,self.hierarchy_prior["family|species"])
-
-        family_label = new_hierarchy[species_label]
-        return family_label, new_hierarchy, hreg_loss
+        new_hierarchy, hreg_loss = self.hierarchy_policy(state,self.hierarchy_prior["family|species"], species_label)
+        return new_hierarchy, hreg_loss
 
         #order_label = torch.einsum('ik,kj->ij',family_label,self.hierarchy_prior["order|family"])
         #return family_label, order_label 
@@ -443,7 +441,7 @@ class SimpleNetHead(nn.Module):
         if "herb" in cfg.DATASETS.TRAIN[0]:
             meta = MetadataCatalog.get("herb_2021_train")
         else:
-            meta = MetadataCatalog.get(cfg.DATASET.TRAIN[0])
+            meta = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
         num_classes = {f: meta.num_classes[f] for f in cfg.MODEL.SIMPLENET.NUM_CLASSES}
         hierarchy_prior = meta.hierarchy_prior
         policy = build_policy(cfg, hierarchy_prior)

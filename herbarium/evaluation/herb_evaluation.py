@@ -152,12 +152,18 @@ class HERBEvaluator(DatasetEvaluator):
             file_path = os.path.join(self._output_dir, "instances_predictions.pth")
             with PathManager.open(file_path, "wb") as f:
                 torch.save(predictions, f)
+            result_file = os.path.join(self._output_dir, "result.txt")
+            with PathManager.open(result_file, "w") as f:
+                f.write("Id,Prediction\n")
+                for pr in predictions:
+                    f.write("{},{}\n".format(pr["image_id"], pr["category_id"]))
+                f.flush()
 
         self._results = OrderedDict()
         self._eval_predictions(predictions, img_ids=img_ids)
         # Copy so the caller can do whatever with results
         #return copy.deepcopy(self._results)
-        return None
+        return copy.deepcopy(self._results)
 
     def _tasks_from_predictions(self, predictions):
         """
@@ -196,6 +202,7 @@ class HERBEvaluator(DatasetEvaluator):
             _evaluate_predictions_on_herb(
                 self._herb_api,
                 predictions, 
+                log_dir=self._output_dir,
                 img_ids=img_ids,
             )
             if len(predictions) > 0
@@ -203,7 +210,8 @@ class HERBEvaluator(DatasetEvaluator):
         )
 
         #res = self._derive_herb_results(herb_eval)
-        #self._results = res
+
+        self._results["f1_score"] = herb_eval
 
     def _derive_herb_results(self, herb_eval):
         """
@@ -333,7 +341,7 @@ def instances_to_herb_json(instances, img_id):
     return results
 
 def _evaluate_predictions_on_herb(
-    herb_gt, herb_results, img_ids=None
+    herb_gt, herb_results, log_dir, img_ids=None
 ):
     """
     Evaluate the herb results using HERBEval API.
@@ -349,5 +357,9 @@ def _evaluate_predictions_on_herb(
     #herb_eval.accumulate()
     #herb_eval.summarize()
     print(herb_eval.evalCats)
+    
+    #from torch.utils.tensorboard import SummaryWriter
 
-    return herb_eval
+    #_writer = SummaryWriter(log_dir)
+    #_writer.add_scalar('f1_score',herb_eval.evalCats,check_iter)
+    return herb_eval.evalCats

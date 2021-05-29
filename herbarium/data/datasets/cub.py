@@ -68,7 +68,9 @@ def update_meta(json_file, dataset_name=None):
 
     from pyherbtools.herb import HERB
 
-    if dataset_name is not None and "test" not in dataset_name:
+    classes_txt = open(json_file[1],'r').readlines()
+
+    if dataset_name is not None:
 
         meta = MetadataCatalog.get(dataset_name)
 
@@ -81,6 +83,7 @@ def update_meta(json_file, dataset_name=None):
         meta.hierarchy_prior = {
             "family|species": family_species_hierarchy
         }
+        meta.thing_classes = [cl.split()[1] for cl in classes_txt]
 
 
 def load_cub_json(ann_files, image_root, dataset_name=None):
@@ -124,9 +127,8 @@ def load_cub_json(ann_files, image_root, dataset_name=None):
 
     timer = Timer()
 
-    if "test" not in dataset_name:
-        meta = MetadataCatalog.get(dataset_name)
-        dataset_dicts = [process_per_record(anns, image_root, ann_keys, meta) for anns in imgs_anns]
+    meta = MetadataCatalog.get(dataset_name)
+    dataset_dicts = [process_per_record(anns, image_root, ann_keys, meta) for anns in imgs_anns]
 
     logger.info("Processing Record takes {:.2f} seconds.".format(timer.seconds()))
 
@@ -333,7 +335,7 @@ def register_cub_instances(name, metadata, image_root, ann_files):
 
     if metadata is not None:
         MetadataCatalog.get(name).set(
-            image_root=image_root, evaluator_type="cub", **metadata
+            image_root=image_root, evaluator_type="herb", **metadata
         )
 
         update_meta(ann_files, name)

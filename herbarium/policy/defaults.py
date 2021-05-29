@@ -1,3 +1,4 @@
+from operator import itemgetter
 from herbarium.layers.relative_attention import AttentionConv
 from torch import Tensor, nn
 import torch
@@ -36,12 +37,16 @@ class BasePolicyNetwork(nn.Module):
             "concen_decay": cfg.SOLVER.WEIGHT_DECAY
         }
 
-    def forward(self, state, prior):
+    def forward(self, state, prior, query):
         state = torch.cat([state["bias"].view(-1, 1), state["weight"].view(-1, 512)],dim=1).view(-1, 513, 1, 1).cuda()
+        query_unique = query.unique()
+        state = state[query_unique]
+        prior = prior[query_unique]
         state.requires_grad = True
         concen = self.dist_generator(state).view(-1, self.out_channel)
         #sigma = self.dist_sigma_generator(state).view(-1,20)
         new_concen = nn.Softmax(dim=1)(concen + prior)
         sampler = [self.dist(mu) for mu in new_concen]
-        new_hierarchy = torch.stack([sa.rsample() for sa in sampler])
+        new_hierarchy = {k: sa.rsample() for k, sa in zip(query_unique.tolist(), sampler)}
+        new_hierarchy = torch.stack(list(itemgetter(*query.tolist())(new_hierarchy)))
         return new_hierarchy, (concen ** 2).mean() * self.concen_decay

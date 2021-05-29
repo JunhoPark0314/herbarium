@@ -90,6 +90,7 @@ setup(
         "matplotlib",
         "tqdm>4.29.0",
         "tensorboard",
+        "sklearn",
         # Lock version of fvcore/iopath because they may have breaking changes
         # NOTE: when updating fvcore/iopath version, make sure fvcore depends
         # on the same version of iopath.

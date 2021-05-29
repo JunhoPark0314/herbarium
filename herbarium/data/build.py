@@ -134,7 +134,7 @@ def get_dataset_dicts(names):
         
         dataset_dicts = []
         for cid, val in per_cat_data.items():
-            dataset_dicts.extend(val[:5])
+            dataset_dicts.extend(val[:3])
 
     return dataset_dicts
 
