@@ -34,7 +34,7 @@ from herbarium.evaluation import (
 
 
 
-class Trainer(HierarchyTrainer):
+class Trainer(DefaultTrainer):
     """
     We use the "DefaultTrainer" which contains pre-defined default logic for
     standard training workflow. They may not work for you, especially if you

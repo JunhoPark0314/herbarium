@@ -221,16 +221,16 @@ class SimpleNet(nn.Module):
         num_images = len(gt_labels)
 
         species_labels = torch.tensor([labels[0]["category_id"] for labels in gt_labels]).cuda()
-        family_labels, hreg_loss = self.head.label_from_prior(species_labels)
-        family_labels, order_labels = self.head.label_from_prior(species_labels)
+        #family_labels, hreg_loss = self.head.label_from_prior(species_labels)
+        #family_labels, order_labels = self.head.label_from_prior(species_labels)
 
         species_loss = self.cls_loss_func(pred_logits["species"], species_labels)
-        family_loss = self.div_loss_func(F.log_softmax(pred_logits["family"], dim=1), family_labels)
+        #family_loss = self.div_loss_func(F.log_softmax(pred_logits["family"], dim=1), family_labels)
         #order_loss = self.div_loss_func(F.log_softmax(pred_logits["order"], dim=1), order_labels)
 
         loss = {
             "species_loss": species_loss,
-            "family_loss": family_loss,
+            #"family_loss": family_loss,
             #"hierarchy_reg_loss": hreg_loss,
         }
 

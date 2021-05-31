@@ -315,13 +315,12 @@ class FixedSizeCrop(Augmentation):
 
         return TransformList([crop_transform, pad_transform])
 
-
 class RandomCrop(Augmentation):
     """
     Randomly crop a rectangle region out of an image.
     """
 
-    def __init__(self, crop_type: str, crop_size):
+    def __init__(self, crop_type: str, crop_size, center_crop = False):
         """
         Args:
             crop_type (str): one of "relative_range", "relative", "absolute", "absolute_range".
@@ -347,8 +346,13 @@ class RandomCrop(Augmentation):
         h, w = image.shape[:2]
         croph, cropw = self.get_crop_size((h, w))
         assert h >= croph and w >= cropw, "Shape computation in {} has bugs.".format(self)
-        h0 = np.random.randint(h - croph + 1)
-        w0 = np.random.randint(w - cropw + 1)
+        
+        if self.center_crop:
+            h0 = int(0.5 * (h - croph) + 1)
+            w0 = int(0.5 * (w - cropw) + 1)
+        else:
+            h0 = np.random.randint(h - croph + 1)
+            w0 = np.random.randint(w - cropw + 1)
         return CropTransform(w0, h0, cropw, croph)
 
     def get_crop_size(self, image_size):

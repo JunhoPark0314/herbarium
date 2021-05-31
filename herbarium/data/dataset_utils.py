@@ -15,6 +15,7 @@ from herbarium.structures import (
     Hierarchy
 )
 from herbarium.utils.file_io import PathManager
+import torchvision.transforms as trf
 
 from . import transforms as T
 from .catalog import MetadataCatalog
@@ -257,15 +258,26 @@ def build_augmentation(cfg, is_train):
     Returns:
         list[Augmentation]
     """
+
+    augmentation = []
     if is_train:
         min_size = cfg.INPUT.MIN_SIZE_TRAIN
         max_size = cfg.INPUT.MAX_SIZE_TRAIN
         sample_style = cfg.INPUT.MIN_SIZE_TRAIN_SAMPLING
+        crop_type = "absolute"
+        crop_range = (380, 380)
+        center_crop = False
     else:
         min_size = cfg.INPUT.MIN_SIZE_TEST
         max_size = cfg.INPUT.MAX_SIZE_TEST
         sample_style = "choice"
-    augmentation = [T.ResizeShortestEdge(min_size, max_size, sample_style)]
+        crop_type = "absolute"
+        crop_range = (380, 380)
+        center_crop = True
+
+    augmentation = [T.ResizeShortestEdge(min_size, max_size, sample_style), 
+                    T.RandomCrop(crop_type=crop_type, crop_size=crop_range, center_crop=center_crop)]
+
     if is_train and cfg.INPUT.RANDOM_FLIP != "none":
         augmentation.append(
             T.RandomFlip(
